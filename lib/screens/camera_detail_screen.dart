@@ -48,7 +48,11 @@ class CameraDetailScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
         children: [
           Center(
-            child: CameraIcon(bodyColor: owned.customization.bodyColor, size: 130),
+            child: CameraIcon(
+              bodyColor: owned.customization.bodyColor,
+              size: 130,
+              silhouette: profile.silhouette,
+            ),
           ),
           const SizedBox(height: 12),
           Center(

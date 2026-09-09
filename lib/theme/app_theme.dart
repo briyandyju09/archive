@@ -16,7 +16,17 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData themeFor(CameraSkin skin) {
-    final scheme = ColorScheme.dark(
+    // Derived the same way CameraSkin itself resolves highlight/shadow
+    // polarity (see _lighterNeutral/_darkerNeutral) — most skins are
+    // structurally dark-bodied, but Archive's cream-plastic body is
+    // structurally light, and Flutter's own brightness-driven widget
+    // defaults (unthemed hint/cursor/selection colors, for example) need to
+    // know that rather than always assuming dark.
+    final brightness = skin.black.computeLuminance() > skin.lcdWhite.computeLuminance()
+        ? Brightness.light
+        : Brightness.dark;
+    final scheme = ColorScheme(
+      brightness: brightness,
       primary: skin.amber,
       onPrimary: skin.black,
       primaryContainer: skin.graphite,
@@ -47,7 +57,7 @@ class AppTheme {
       onInverseSurface: skin.black,
       surfaceTint: Colors.transparent,
     );
-    final base = ThemeData(colorScheme: scheme, useMaterial3: true, brightness: Brightness.dark);
+    final base = ThemeData(colorScheme: scheme, useMaterial3: true, brightness: brightness);
     return _apply(base, scheme, skin);
   }
 
@@ -60,6 +70,30 @@ class AppTheme {
       splashFactory: NoSplash.splashFactory,
       highlightColor: skin.amber.withValues(alpha: 0.08),
       extensions: [AppSkinExtension(skin)],
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: skin.amber,
+        selectionColor: skin.amber.withValues(alpha: 0.3),
+        selectionHandleColor: skin.amber,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: skin.charcoal,
+        labelStyle: skin.uppercaseLabel(fontSize: 12, color: skin.dimAmber),
+        floatingLabelStyle: skin.uppercaseLabel(fontSize: 12, color: skin.amber),
+        hintStyle: skin.prose(fontSize: 13, color: skin.mutedText),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.control),
+          borderSide: BorderSide(color: skin.graphite),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.control),
+          borderSide: BorderSide(color: skin.graphite),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.control),
+          borderSide: BorderSide(color: skin.amber, width: 1.5),
+        ),
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: scheme.surface,
         foregroundColor: scheme.onSurface,

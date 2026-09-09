@@ -12,14 +12,6 @@ extension RarityDisplay on Rarity {
     Rarity.legendary => 'Legendary',
   };
 
-  String get emoji => switch (this) {
-    Rarity.common => '🟢',
-    Rarity.uncommon => '🔵',
-    Rarity.rare => '🟣',
-    Rarity.vintage => '🟠',
-    Rarity.legendary => '🔴',
-  };
-
   Color get color => switch (this) {
     Rarity.common => const Color(0xFF4CAF6D),
     Rarity.uncommon => const Color(0xFF4C8DFF),

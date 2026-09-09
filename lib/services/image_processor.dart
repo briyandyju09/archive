@@ -35,6 +35,12 @@ class ProcessJob {
   final double flashStrength;
   final double redEyeChance;
   final double fingerOverLensChance;
+  final double chromaticAberration;
+  final double lightLeakChance;
+  final double scanlineStrength;
+  final double crossProcessAmount;
+  final double doubleCompressionAmount;
+  final bool instantFrameBorder;
   final String dateStampText;
   final int dateStampColorValue; // ARGB32 — a Color, flattened for the isolate boundary
   final int seed;
@@ -60,6 +66,12 @@ class ProcessJob {
     required this.flashStrength,
     required this.redEyeChance,
     required this.fingerOverLensChance,
+    this.chromaticAberration = 0,
+    this.lightLeakChance = 0,
+    this.scanlineStrength = 0,
+    this.crossProcessAmount = 0,
+    this.doubleCompressionAmount = 0,
+    this.instantFrameBorder = false,
     required this.dateStampText,
     this.dateStampColorValue = 0xFFFF8C1E,
     required this.seed,
@@ -97,6 +109,12 @@ class ProcessJob {
       flashStrength: profile.flashStrength,
       redEyeChance: profile.redEyeChance,
       fingerOverLensChance: profile.fingerOverLensChance,
+      chromaticAberration: profile.chromaticAberration,
+      lightLeakChance: profile.lightLeakChance,
+      scanlineStrength: profile.scanlineStrength,
+      crossProcessAmount: profile.crossProcessAmount,
+      doubleCompressionAmount: profile.doubleCompressionAmount,
+      instantFrameBorder: profile.instantFrameBorder,
       dateStampText: dateStampText,
       seed: seed ?? DateTime.now().millisecondsSinceEpoch,
     );
@@ -139,6 +157,15 @@ class ProcessJob {
       flashStrength: profile.flashStrength, // untouched — hardware trait
       redEyeChance: profile.redEyeChance, // untouched — hardware trait
       fingerOverLensChance: profile.fingerOverLensChance, // untouched — easter-egg quirk
+      // Untouched — every signature effect below is a physical/optical
+      // camera trait (lens coating, sensor readout, print hardware), not a
+      // color-grade knob a skin's "coat of paint" should be able to nudge.
+      chromaticAberration: profile.chromaticAberration,
+      lightLeakChance: profile.lightLeakChance,
+      scanlineStrength: profile.scanlineStrength,
+      crossProcessAmount: profile.crossProcessAmount,
+      doubleCompressionAmount: profile.doubleCompressionAmount,
+      instantFrameBorder: profile.instantFrameBorder,
       dateStampText: dateStampText,
       dateStampColorValue: skin.dateStampColor.toARGB32(),
       seed: seed ?? DateTime.now().millisecondsSinceEpoch,
@@ -193,6 +220,12 @@ ProcessedPhoto _process(ProcessJob job) {
   );
   _applyToneAndWarmth(image, job);
 
+  // 3.5. Cross-process split tone — a color-science step in the same
+  // family as warmth/tone curve, so it runs right alongside it.
+  if (job.crossProcessAmount > 0.02) {
+    _applyCrossProcess(image, job.crossProcessAmount);
+  }
+
   // 4. Bloom: blur the bright areas and screen them back on top for a CCD
   // highlight glow.
   if (job.bloomAmount > 0.02) {
@@ -214,6 +247,13 @@ ProcessedPhoto _process(ProcessJob job) {
     );
   }
 
+  // 6.5. Chromatic aberration (RGB channel split) — an optical/lens
+  // artifact, same family as distortion, so it runs right after it and
+  // before grain is added (real fringing sits "under" sensor noise).
+  if (job.chromaticAberration > 0.02) {
+    image = _applyChromaticAberration(image, job.chromaticAberration);
+  }
+
   // 7. Sensor noise.
   if (job.sensorNoise > 0.01) {
     image = img.noise(image, job.sensorNoise * 45, type: img.NoiseType.gaussian, random: rnd);
@@ -231,6 +271,15 @@ ProcessedPhoto _process(ProcessJob job) {
   // 9. Vignette.
   if (job.vignetteStrength > 0.01) {
     image = img.vignette(image, start: 0.25, end: 0.95, amount: job.vignetteStrength);
+  }
+
+  // 9.5. Scanlines / light leak — "surface artifact" effects, same tier as
+  // vignette, layered near the end of the optical chain.
+  if (job.scanlineStrength > 0.02) {
+    _applyScanlines(image, job.scanlineStrength);
+  }
+  if (rnd.nextDouble() < job.lightLeakChance) {
+    _applyLightLeak(image, rnd);
   }
 
   // 10. Flash: fires immediately if forced, never if off, and for auto
@@ -256,6 +305,20 @@ ProcessedPhoto _process(ProcessJob job) {
   // 12. Date stamp.
   if (job.dateStampText.isNotEmpty) {
     _drawDateStamp(image, job.dateStampText, job.dateStampColorValue);
+  }
+
+  // 12.5. Double-compression artifact — simulates a file-level re-encode,
+  // so it must run last of all pixel effects: real block/ringing artifacts
+  // only ever bake in after everything else is already in the frame.
+  if (job.doubleCompressionAmount > 0.02) {
+    image = _applyDoubleCompression(image, job.doubleCompressionAmount);
+  }
+
+  // 12.7. Instant-print frame border — changes canvas size, so it must run
+  // after every size-dependent step above (vignette center, flash falloff,
+  // date-stamp margin) has already operated on the unpadded frame.
+  if (job.instantFrameBorder) {
+    image = _applyInstantFrameBorder(image);
   }
 
   final thumb = img.copyResize(image, width: min(360, image.width));
@@ -388,6 +451,122 @@ void _drawFingerOverLens(img.Image image, Random rnd) {
     final r = (w * (0.16 - t * 0.05)).round();
     img.fillCircle(image, x: x.round(), y: y.round(), radius: r, color: color);
   }
+}
+
+/// Cross-process split tone: pushes shadow luminance toward teal/cyan and
+/// highlight luminance toward orange/amber, scaled by [amount] — the
+/// "wrong chemical" look of cross-processed film, showcased by the
+/// panorama-era compact.
+void _applyCrossProcess(img.Image image, double amount) {
+  for (final frame in image.frames) {
+    for (final p in frame) {
+      final r = p.r.toDouble(), g = p.g.toDouble(), b = p.b.toDouble();
+      final lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+      if (lum < 0.5) {
+        final k = ((0.5 - lum) / 0.5) * amount;
+        p.b = (b + k * 32).clamp(0, 255);
+        p.r = (r - k * 16).clamp(0, 255);
+      } else {
+        final k = ((lum - 0.5) / 0.5) * amount;
+        p.r = (r + k * 28).clamp(0, 255);
+        p.b = (b - k * 18).clamp(0, 255);
+      }
+    }
+  }
+}
+
+/// Radial RGB channel split: samples red slightly outward and blue slightly
+/// inward (relative to frame center) proportional to distance from center,
+/// simulating lateral chromatic aberration — most visible at the frame edge
+/// wide open, showcased by the bridge-era prosumer camera.
+img.Image _applyChromaticAberration(img.Image image, double amount) {
+  final src = img.Image.from(image);
+  final w = image.width, h = image.height;
+  final cx = w / 2.0, cy = h / 2.0;
+  final maxDist = sqrt(cx * cx + cy * cy);
+  final maxShift = amount * 6.0;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final dx = x - cx, dy = y - cy;
+      final dist = sqrt(dx * dx + dy * dy);
+      if (dist < 1) continue;
+      final nx = dx / dist, ny = dy / dist;
+      final shift = (dist / maxDist) * maxShift;
+      final rx = (x + nx * shift).round().clamp(0, w - 1);
+      final ry = (y + ny * shift).round().clamp(0, h - 1);
+      final bx = (x - nx * shift).round().clamp(0, w - 1);
+      final by = (y - ny * shift).round().clamp(0, h - 1);
+      final p = image.getPixel(x, y);
+      p.r = src.getPixel(rx, ry).r;
+      p.b = src.getPixel(bx, by).b;
+    }
+  }
+  return image;
+}
+
+/// Darkens every other row proportional to [strength] — a cheap
+/// CRT/interlace artifact, showcased by the toy camera.
+void _applyScanlines(img.Image image, double strength) {
+  final darken = (strength * 0.55).clamp(0.0, 0.85);
+  for (var y = 1; y < image.height; y += 2) {
+    for (var x = 0; x < image.width; x++) {
+      final p = image.getPixel(x, y);
+      p.r = (p.r * (1 - darken)).clamp(0, 255);
+      p.g = (p.g * (1 - darken)).clamp(0, 255);
+      p.b = (p.b * (1 - darken)).clamp(0, 255);
+    }
+  }
+}
+
+/// A warm radial leak blended in from a random corner — showcased by the
+/// instant-print camera, with a small chance on the action camera.
+void _applyLightLeak(img.Image image, Random rnd) {
+  final w = image.width, h = image.height;
+  final corners = [
+    (0.0, 0.0),
+    (w.toDouble(), 0.0),
+    (0.0, h.toDouble()),
+    (w.toDouble(), h.toDouble()),
+  ];
+  final corner = corners[rnd.nextInt(corners.length)];
+  final radius = max(w, h) * (0.55 + rnd.nextDouble() * 0.25);
+  final leakR = 255.0, leakG = (140 + rnd.nextInt(60)).toDouble(), leakB = 60.0;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final dx = x - corner.$1, dy = y - corner.$2;
+      final dist = sqrt(dx * dx + dy * dy);
+      if (dist > radius) continue;
+      final t = 1 - dist / radius;
+      final alpha = t * t * 0.55;
+      final p = image.getPixel(x, y);
+      p.r = (p.r + (leakR - p.r) * alpha).clamp(0, 255);
+      p.g = (p.g + (leakG - p.g) * alpha).clamp(0, 255);
+      p.b = (p.b + (leakB - p.b) * alpha).clamp(0, 255);
+    }
+  }
+}
+
+/// Re-encodes/decodes the frame at a lowered JPEG quality proportional to
+/// [amount], baking in real block/ringing compression artifacts —
+/// showcased by the earliest, floppy-disk-era camera.
+img.Image _applyDoubleCompression(img.Image image, double amount) {
+  final quality = (90 - amount * 60).round().clamp(20, 90);
+  final bytes = img.encodeJpg(image, quality: quality);
+  final redecoded = img.decodeJpg(Uint8List.fromList(bytes));
+  return redecoded ?? image;
+}
+
+/// Pads the frame with a white instant-print border (thicker at the
+/// bottom, like a real Polaroid-style print) — a genuine shape change, not
+/// a color filter, so it must run after every other pixel effect above.
+img.Image _applyInstantFrameBorder(img.Image image) {
+  final w = image.width, h = image.height;
+  final margin = (w * 0.06).round().clamp(4, 200);
+  final bottomMargin = (h * 0.22).round().clamp(8, 400);
+  final framed = img.Image(width: w + margin * 2, height: h + margin * 2 + bottomMargin);
+  img.fill(framed, color: img.ColorRgba8(250, 248, 240, 255));
+  img.compositeImage(framed, image, dstX: margin, dstY: margin);
+  return framed;
 }
 
 void _drawDateStamp(img.Image image, String text, int colorValue) {

@@ -62,7 +62,12 @@ class CameraShelfCard extends StatelessWidget {
             const SizedBox(height: 6),
             Expanded(
               child: Center(
-                child: CameraIcon(bodyColor: bodyColor, locked: !owned, size: 60),
+                child: CameraIcon(
+                  bodyColor: bodyColor,
+                  locked: !owned,
+                  size: 60,
+                  silhouette: profile.silhouette,
+                ),
               ),
             ),
             const SizedBox(height: 6),

@@ -44,7 +44,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('My Cameras'), findsOneWidget);
-    expect(find.text('My First Camera'), findsOneWidget);
+    expect(find.text('Olympus D-360L'), findsOneWidget);
     expect(find.text('Discover Cameras'), findsOneWidget);
   });
 }

@@ -224,7 +224,15 @@ class _CaptureScreenState extends State<CaptureScreen> with SingleTickerProvider
         height: processed.height,
       );
 
-      unawaited(rawFile.delete().catchError((_) => rawFile));
+      unawaited(
+        rawFile.delete().catchError((e) {
+          // Cleanup failing shouldn't interrupt the shot flow — the photo is
+          // already saved — but a swallowed error here was previously
+          // undiagnosable if temp files ever piled up.
+          debugPrint('Failed to delete temp capture file ${rawFile.path}: $e');
+          return rawFile;
+        }),
+      );
     } catch (e) {
       unawaited(_sound.playError());
       _snack('Something went wrong processing that shot.');
@@ -255,42 +263,52 @@ class _CaptureScreenState extends State<CaptureScreen> with SingleTickerProvider
               backgroundColor: skin.black,
               body: Consumer<CaptureSessionController>(
                 builder: (context, session, _) {
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _Viewfinder(profile: _profile, session: session),
-                      if (_showBrackets)
-                        AnimatedBuilder(
-                          animation: _focusAnim,
-                          builder: (context, _) =>
-                              _FocusBrackets(progress: _focusAnim.value, locked: _focusLocked),
+                  return CameraBodyBezel(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _Viewfinder(profile: _profile, session: session),
+                        const GripTexture(),
+                        if (_showBrackets)
+                          AnimatedBuilder(
+                            animation: _focusAnim,
+                            builder: (context, _) =>
+                                _FocusBrackets(progress: _focusAnim.value, locked: _focusLocked),
+                          ),
+                        if (_flashFlash) Container(color: Colors.white.withValues(alpha: 0.85)),
+                        SafeArea(
+                          child: Column(
+                            children: [
+                              _TopBar(
+                                profile: _profile,
+                                session: session,
+                                rollName: _rollId == null
+                                    ? null
+                                    : context.watch<ArchiveStore>().rollById(_rollId!)?.name,
+                                onRollTap: _promptNewRoll,
+                              ),
+                              const Spacer(),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 20, bottom: 10),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: BrandBadge(modelName: _profile.name),
+                                ),
+                              ),
+                              _BottomBar(
+                                profile: _profile,
+                                session: session,
+                                processing: _processing,
+                                onShoot: _shoot,
+                              ),
+                            ],
+                          ),
                         ),
-                      if (_flashFlash) Container(color: Colors.white.withValues(alpha: 0.85)),
-                      SafeArea(
-                        child: Column(
-                          children: [
-                            _TopBar(
-                              profile: _profile,
-                              session: session,
-                              rollName: _rollId == null
-                                  ? null
-                                  : context.watch<ArchiveStore>().rollById(_rollId!)?.name,
-                              onRollTap: _promptNewRoll,
-                            ),
-                            const Spacer(),
-                            _BottomBar(
-                              profile: _profile,
-                              session: session,
-                              processing: _processing,
-                              onShoot: _shoot,
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (session.stage == CaptureStage.starting) _StartupOverlay(profile: _profile),
-                      if (session.stage == CaptureStage.error)
-                        _ErrorOverlay(message: session.errorMessage ?? 'Camera error'),
-                    ],
+                        if (session.stage == CaptureStage.starting) _StartupOverlay(profile: _profile),
+                        if (session.stage == CaptureStage.error)
+                          _ErrorOverlay(message: session.errorMessage ?? 'Camera error'),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -314,13 +332,25 @@ class _Viewfinder extends StatelessWidget {
     if (controller == null || !controller.value.isInitialized) {
       return ColoredBox(color: context.skin.black);
     }
-    return LivePreviewFilter(
+    final preview = LivePreviewFilter(
       profile: profile,
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 1 / controller.value.aspectRatio,
-          child: cam.CameraPreview(controller),
-        ),
+      child: AspectRatio(
+        aspectRatio: 1 / controller.value.aspectRatio,
+        child: cam.CameraPreview(controller),
+      ),
+    );
+    if (!profile.instantFrameBorder) {
+      return Center(child: preview);
+    }
+    // Instant-print cameras bake a white border into the final photo — hint
+    // at it live so the viewfinder isn't a surprise once the print comes
+    // out. Kept outside LivePreviewFilter so the neutral border itself
+    // never gets color-graded along with the actual preview.
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 54),
+        color: const Color(0xFFFAF8F0),
+        child: preview,
       ),
     );
   }
@@ -607,26 +637,30 @@ class _BottomBar extends StatelessWidget {
         children: [
           // Firmware HUD readout strip — every value here is either real
           // session/profile state or a deterministic per-camera derivation
-          // (see CameraReadout); never randomized per frame.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: skin.hudScrim,
-              borderRadius: BorderRadius.circular(AppRadii.tight),
-              border: Border.all(color: skin.graphite),
-            ),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 4,
-              children: [
-                _hud(context, '${profile.megapixels.toStringAsFixed(profile.megapixels % 1 == 0 ? 0 : 1)}MP'),
-                _hud(context, profile.isoDisplay),
-                _hud(context, profile.shutterDisplay),
-                _hud(context, profile.apertureDisplay),
-                _hud(context, profile.evDisplay),
-                _hud(context, profile.wbDisplay),
-                _hud(context, _fmtElapsed(session.elapsed)),
-              ],
+          // (see CameraReadout); never randomized per frame. Housed in an
+          // extra recessed bevel so it reads as a physical LCD window set
+          // into the body, not a floating pill.
+          LcdHousing(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: skin.hudScrim,
+                borderRadius: BorderRadius.circular(AppRadii.tight),
+                border: Border.all(color: skin.graphite),
+              ),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 4,
+                children: [
+                  _hud(context, '${profile.megapixels.toStringAsFixed(profile.megapixels % 1 == 0 ? 0 : 1)}MP'),
+                  _hud(context, profile.isoDisplay),
+                  _hud(context, profile.shutterDisplay),
+                  _hud(context, profile.apertureDisplay),
+                  _hud(context, profile.evDisplay),
+                  _hud(context, profile.wbDisplay),
+                  _hud(context, _fmtElapsed(session.elapsed)),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -660,36 +694,45 @@ class _BottomBar extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          GestureDetector(
-            onTap: processing ? null : onShoot,
-            child: Container(
-              width: 78,
-              height: 78,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: session.canShoot && !processing ? skin.amber : skin.graphite,
-                  width: 4,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const ModeDialGlyph(),
+              const SizedBox(width: 18),
+              GestureDetector(
+                onTap: processing ? null : onShoot,
+                child: Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: session.canShoot && !processing ? skin.amber : skin.graphite,
+                      width: 4,
+                    ),
+                    color: skin.black,
+                  ),
+                  child: Center(
+                    child: processing
+                        ? SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: CustomPaint(painter: _ProcessingTickPainter(color: skin.dimAmber)),
+                          )
+                        : Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: session.canShoot ? skin.amber : skin.graphite,
+                            ),
+                          ),
+                  ),
                 ),
-                color: skin.black,
               ),
-              child: Center(
-                child: processing
-                    ? SizedBox(
-                        width: 30,
-                        height: 30,
-                        child: CustomPaint(painter: _ProcessingTickPainter(color: skin.dimAmber)),
-                      )
-                    : Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: session.canShoot ? skin.amber : skin.graphite,
-                        ),
-                      ),
-              ),
-            ),
+              const SizedBox(width: 18),
+              const SizedBox(width: 22), // balances ModeDialGlyph so the shutter stays centered
+            ],
           ),
         ],
       ),

@@ -180,7 +180,7 @@ A pill-or-rectangle form language: anything transient or chrome-like (HUD pills,
 - **Internal padding:** 16px for content cards (`_CollectionSummary`); the denser `CameraShelfCard` grid tile uses a tighter 14px inset to fit the icon + two text lines
 
 ### Rarity Badge
-- **Style:** pill (999px), 14%-alpha rarity-color fill, 35%-alpha rarity-color border, full-opacity rarity-color text, small rarity emoji leading
+- **Style:** rectangular bezel (AppRadii.tight), charcoal fill, 50%-alpha rarity-color border, full-opacity rarity-color text, small drawn status-LED square leading (never an emoji)
 - **Compact variant:** smaller padding/font for dense contexts (shelf grid tiles)
 
 ### HUD Chrome Pill

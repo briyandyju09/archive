@@ -171,7 +171,7 @@ class _RevealedCard extends StatelessWidget {
           style: skin.uppercaseLabel(fontSize: 13, color: skin.amber),
         ),
         const SizedBox(height: 14),
-        const CameraIcon(size: 110),
+        CameraIcon(size: 110, silhouette: profile.silhouette),
         const SizedBox(height: 14),
         Text(
           profile.name,

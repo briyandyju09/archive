@@ -1,4 +1,7 @@
+import 'camera_silhouette.dart';
 import 'rarity.dart';
+
+export 'camera_silhouette.dart';
 
 /// Output frame shape a profile shoots in.
 enum CameraAspectRatio { r4x3, r3x2, r1x1 }
@@ -64,6 +67,20 @@ class CameraProfile {
   final double softness; // 0..1 extra gaussian softness (cheap plastic lens)
   final double fingerOverLensChance; // 0..1, easter-egg gag
 
+  // --- Signature processing effects — each one is a genuine optical/
+  // hardware quirk (not a skin re-grade), so ProcessJob.fromProfileAndSkin
+  // leaves all of these untouched by a CameraSkin's deltas, same as
+  // lensDistortion/flashStrength above.
+  final double chromaticAberration; // 0..1, RGB channel split radiating from center
+  final double lightLeakChance; // 0..1, per-shot chance of a warm light leak
+  final double scanlineStrength; // 0..1, alternating-row darkening (CRT/interlace)
+  final double crossProcessAmount; // 0..1, teal-shadow/orange-highlight split tone
+  final double doubleCompressionAmount; // 0..1, re-encode severity (block/ringing artifacts)
+  final bool instantFrameBorder; // true only for instant-print bodies — pads the final canvas
+
+  /// Which hand-drawn body shape [CameraIcon] renders for this camera.
+  final CameraSilhouette silhouette;
+
   const CameraProfile({
     required this.id,
     required this.name,
@@ -101,5 +118,12 @@ class CameraProfile {
     this.lensDistortion = 0.0,
     this.softness = 0.0,
     this.fingerOverLensChance = 0.0,
+    this.chromaticAberration = 0.0,
+    this.lightLeakChance = 0.0,
+    this.scanlineStrength = 0.0,
+    this.crossProcessAmount = 0.0,
+    this.doubleCompressionAmount = 0.0,
+    this.instantFrameBorder = false,
+    this.silhouette = CameraSilhouette.classicCompact,
   });
 }

@@ -103,9 +103,14 @@ class SkinCatalog {
     graphite: const Color(0xFFEDE8DA),
     lcdWhite: const Color(0xFF2A271E),
     warmWhite: const Color(0xFF4A4636),
-    amber: const Color(0xFF7A9B6E),
-    dimAmber: const Color(0xFFA9B79E),
-    lcdGreen: const Color(0xFF7A9B6E),
+    // Darkened from the original 0xFF7A9B6E/0xFFA9B79E — those read at
+    // ~2.2:1 and ~1.7:1 against this skin's light body fills, well under
+    // WCAG AA. These land at ~3.2:1 (amber/lcdGreen, cleared for accent/
+    // icon/large-text duty) and ~5.2:1 (dimAmber, which carries real body
+    // text on this skin's HUD rows).
+    amber: const Color(0xFF5F7D53),
+    dimAmber: const Color(0xFF556449),
+    lcdGreen: const Color(0xFF5F7D53),
     warningRed: const Color(0xFFB25C4E),
     labelWeight: FontWeight.w600,
     panelBevel: PanelBevelStyle.softBezel,
